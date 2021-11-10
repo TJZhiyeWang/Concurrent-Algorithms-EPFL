@@ -1,0 +1,30 @@
+# Ignore everything in this directory and subdirectories
+*
+
+# Except directories and specific files
+!*/
+
+!.gitignore
+!*.md
+
+!.placeholder
+
+!Makefile
+
+!*.c
+!*.C
+!*.cc
+!*.cpp
+!*.cxx
+!*.c++
+
+!*.h
+!*.hh
+!*.hpp
+!*.hxx
+!*.h++
+
+!*.py
+
+# And of course, we do not leak the solution proposed by the TA :)
+solution/
