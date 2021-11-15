@@ -23,8 +23,9 @@
 // External headers
 
 // Internal headers
-#include <tm.hpp>
-
+#include <tm.h>
+#include <atomic>
+#include <hash_map>
 // -------------------------------------------------------------------------- //
 
 /** Define a proposition as likely true.
