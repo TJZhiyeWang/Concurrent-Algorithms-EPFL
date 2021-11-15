@@ -120,8 +120,8 @@ static record* record_remove(struct record* base) {
 
 struct region {
     std::atomic_flag lock = ATOMIC_FLAG_INIT;
-    std::atomic<tx_t> tx(1);
-    std::atomic<tx_t> write(0);
+    std::atomic<tx_t> tx;
+    std::atomic<tx_t> write;
     void* start;        // Start of the shared memory region
     struct link allocs; // Allocated shared memory regions
     size_t size;        // Size of the shared memory region (in bytes)
@@ -139,6 +139,8 @@ struct region {
 **/
 shared_t tm_create(size_t size as(unused), size_t align as(unused)) {
     struct region* region = (struct region*)malloc(sizeof(struct region));
+    std::atomic_init(&(region->tx), 1);
+    std::atomic_init(&(region->write), 0);
     if (unlikely(!region)) {
         return invalid_shared;
     }
