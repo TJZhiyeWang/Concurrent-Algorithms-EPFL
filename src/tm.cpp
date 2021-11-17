@@ -218,7 +218,7 @@ tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) noexcept {
     if (is_ro) {
         if ((p_r->lock).test_and_set(std::memory_order_acquire)) { //get the lock
             (p_r->lock).clear(std::memory_order_release);
-            cout << p_r->tx << endl;
+            cout << (p_r->tx).load() << endl;
             cout << "ro" << endl;
             return (p_r->tx).fetch_add(1);
         }
@@ -230,7 +230,7 @@ tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) noexcept {
     }else {
         if ((p_r->lock).test_and_set(std::memory_order_acquire)) {
             (p_r->write).store(p_r->tx);
-            cout << p_r->tx << endl;
+            cout << (p_r->tx).load() << endl;
             cout << "rw" << endl;
             return (p_r->tx).fetch_add(1);
         }
