@@ -285,7 +285,7 @@ bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source
         record *p1;
         p1->id = 0;
         p1->value = malloc(size);
-        memcpy(p1->value, target, size);
+        memcpy(p1->value, static_cast<void const*>(target), size);
         record* p2;
         p2->id = tx;
         p2->value = malloc(size);
