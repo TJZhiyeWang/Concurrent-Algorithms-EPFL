@@ -256,7 +256,7 @@ bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source 
         pr = pr->next;
         while (true) {
             if (tx > pr->id) {
-                memcpy(source, pr->value, size);
+                memcpy(target, pr->value, size);
                 break;
             }
             else {
