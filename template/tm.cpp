@@ -128,7 +128,7 @@ struct region {
     size_t align;       // Claimed alignment of the shared memory region (in bytes)
     size_t align_alloc; // Actual alignment of the memory allocations (in bytes)
     size_t delta_alloc; // Space to add at the beginning of the segment for the link chain (in bytes)
-    hash_map<void*, record> map;
+    std::hash_map<void*, record*> map;
 
 };
 
@@ -246,12 +246,12 @@ bool tm_end(shared_t shared as(unused), tx_t tx as(unused)) {
 **/
 bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source as(unused), size_t size as(unused), void* target as(unused)) {
     region* p_r = ((struct region*)shared);
-    if (p_r->map.count(source)==0) {//don't have old value
+    if (p_r->map.count(source) == 0) {//don't have old value
         memcpy(target, source, size);
     }
     else {
         record* pr;
-        p_r->map.get(source, pr);
+        pr = (p_r->map).at(source);
         pr = pr->next;
         while (true) {
             if (tx > pr->id) {
@@ -277,27 +277,28 @@ bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source 
 bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source as(unused), size_t size as(unused), void* target as(unused)) {
     region* p_r = ((struct region*)shared);
     if (p_r->map.count(target) == 0) {//don't have old value, build
-        record pr;//head node
-        pr.next = NULL;
-        record p1;
-        p1.id = 0;
-        p1.value = malloc(size);
-        memcpy(p1.value, target, size);
-        p2.id = tx;
-        p2.value = malloc(size);
-        memcpy(p2.value, source, size);
-        (p_r->map).put(target, pr);
-        record_insert(&p1, &pr);
-        record_insert(&p2, &pr);
+        record *pr;//head node pointer
+        pr->next = NULL;
+        record *p1;
+        p1->id = 0;
+        p1->value = malloc(size);
+        memcpy(p1->value, target, size);
+        record* p2;
+        p2->id = tx;
+        p2->value = malloc(size);
+        memcpy(p2->value, source, size);
+        (p_r->map).insert({ target, pr });
+        record_insert(p1, pr);
+        record_insert(p2, pr);
         memcpy(target, source, size);
     }else {
-        record r;
-        r.id = tx;
-        r.value = malloc(size);
-        memcpy(r.value, source, size);
+        record* r;
+        r->id = tx;
+        r->value = malloc(size);
+        memcpy(r->value, source, size);
         record* pr;
-        (p_r->map).get(source, pr);
-        record_insert(&r, pr);
+        pr = (p_r->map).at(source);
+        record_insert(r, pr);
         memcpy(target, source, size);
     }
     return true;
