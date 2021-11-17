@@ -24,8 +24,10 @@
 
 // Internal headers
 #include <tm.h>
+//#include <tm.hpp>
 #include <atomic>
 #include <unordered_map>
+using namespace std;
 // -------------------------------------------------------------------------- //
 
 /** Define a proposition as likely true.
