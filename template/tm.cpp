@@ -247,7 +247,8 @@ bool tm_end(shared_t shared as(unused), tx_t tx as(unused)) {
 **/
 bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source as(unused), size_t size as(unused), void* target as(unused)) {
     region* p_r = ((struct region*)shared);
-    void* dest = source;
+    void* dest = malloc(sizeof(void const*));
+    memcpy(&dest, &source, sizeof(void const*));
     if ((p_r->map).count(dest) == 0) {//don't have old value
         memcpy(target, source, size);
     }
