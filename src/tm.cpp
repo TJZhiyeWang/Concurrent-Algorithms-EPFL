@@ -25,6 +25,7 @@
 // Internal headers
 #include <tm.hpp>
 //#include <tm.hpp>
+#include <iostream>
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
@@ -213,7 +214,7 @@ size_t tm_align(shared_t shared as(unused)) noexcept {
 **/
 tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) noexcept {
     region* p_r = ((struct region*)shared);
-    std::cout << p_r->tx << std::endl;
+    cout << p_r->tx << endl;
     if (is_ro) {
         while ((p_r->lock).test_and_set(std::memory_order_acquire));
         (p_r->lock).clear(std::memory_order_release);
