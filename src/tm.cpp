@@ -297,8 +297,9 @@ bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source 
 **/
 bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source as(unused), size_t size as(unused), void* target as(unused)) noexcept {
     region* p_r = ((struct region*)shared);
+    cout << "begin to write" << endl;
+
     if ((p_r->map).count(target) == 0) {//don't have old value, build
-        cout << "begin to write" << endl;
         record *pr;//head node pointer
         pr->next = NULL;
         record *p1;
