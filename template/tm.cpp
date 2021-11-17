@@ -254,7 +254,7 @@ bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source 
     }
     else {
         record* pr;
-        pr = (p_r->map).at(source);
+        pr = (p_r->map).at(dest);
         pr = pr->next;
         while (true) {
             if (tx > pr->id) {
@@ -300,7 +300,7 @@ bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source
         r->value = malloc(size);
         memcpy(r->value, source, size);
         record* pr;
-        pr = (p_r->map).at(source);
+        pr = (p_r->map).at(target);
         record_insert(r, pr);
         memcpy(target, source, size);
     }
