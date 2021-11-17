@@ -109,7 +109,7 @@ static void link_remove(struct link* link) {
 struct record {
     struct record* next; // Next link in the chain
     tx_t id;
-    void* value;
+    const void* value;
 };
 
 static void record_insert(struct record* record, struct record* base) {
