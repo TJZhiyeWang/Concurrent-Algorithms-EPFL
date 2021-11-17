@@ -314,17 +314,17 @@ bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source
  * @param target Pointer in private memory receiving the address of the first byte of the newly allocated, aligned segment
  * @return Whether the whole transaction can continue (success/nomem), or not (abort_alloc)
 **/
-alloc_t tm_alloc(shared_t shared as(unused), tx_t tx as(unused), size_t size as(unused), void** target as(unused)) noexcept {
+Alloc tm_alloc(shared_t shared as(unused), tx_t tx as(unused), size_t size as(unused), void** target as(unused)) noexcept {
     size_t align_alloc = ((struct region*)shared)->align_alloc;
     size_t delta_alloc = ((struct region*)shared)->delta_alloc;
     void* segment;
     if (unlikely(posix_memalign(&segment, align_alloc, delta_alloc + size) != 0)) // Allocation failed
-        return nomem_alloc;
+        return Alloc.nomem;
     link_insert((struct link*)segment, &(((struct region*)shared)->allocs));
     segment = (void*)((uintptr_t)segment + delta_alloc);
     memset(segment, 0, size);
     *target = segment;
-    return success_alloc;
+    return Alloc.success;
 }
 
 /** [thread-safe] Memory freeing in the given transaction.
