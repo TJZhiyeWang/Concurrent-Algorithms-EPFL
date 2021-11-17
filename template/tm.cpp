@@ -25,6 +25,9 @@
 // Internal headers
 #include <tm.h>
 //#include <tm.hpp>
+#include <cstring>
+#include <cstdio>
+#include <cstdlib>
 #include <atomic>
 #include <unordered_map>
 using namespace std;
