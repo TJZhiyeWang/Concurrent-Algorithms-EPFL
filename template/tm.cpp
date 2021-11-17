@@ -133,7 +133,7 @@ struct region {
     size_t align;       // Claimed alignment of the shared memory region (in bytes)
     size_t align_alloc; // Actual alignment of the memory allocations (in bytes)
     size_t delta_alloc; // Space to add at the beginning of the segment for the link chain (in bytes)
-    std::unordered_map<void*, record*> map;
+    std::unordered_map<void const*, record*> map;
 
 };
 
