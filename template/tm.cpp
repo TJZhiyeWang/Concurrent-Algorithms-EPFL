@@ -150,11 +150,7 @@ shared_t tm_create(size_t size as(unused), size_t align as(unused)) {
         free(region);
         return invalid_shared;
     }
-    if (unlikely(!lock_init(&(region->lock)))) {
-        free(region->start);
-        free(region);
-        return invalid_shared;
-    }
+    
     memset(region->start, 0, size);
     link_reset(&(region->allocs));
     region->size = size;
@@ -179,7 +175,6 @@ void tm_destroy(shared_t shared as(unused)) {
     }
     free(region->start);
     free(region);
-    lock_cleanup(&(region->lock));
 }
 
 /** [thread-safe] Return the start address of the first allocated segment in the shared memory region.
