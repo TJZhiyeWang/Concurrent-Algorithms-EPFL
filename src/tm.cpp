@@ -144,6 +144,7 @@ struct region {
  * @return Opaque shared memory region handle, 'invalid_shared' on failure
 **/
 shared_t tm_create(size_t size as(unused), size_t align as(unused)) noexcept {
+    cout << "create a shared memory" << endl;
     struct region* region = (struct region*)malloc(sizeof(struct region));
     (region->tx).store(1);
     (region->write).store(0);
