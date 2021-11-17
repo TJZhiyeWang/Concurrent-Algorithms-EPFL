@@ -109,7 +109,7 @@ static void link_remove(struct link* link) {
 struct record {
     struct record* next; // Next link in the chain
     tx_t id;
-    const void* value;
+    void* value;
 };
 
 static void record_insert(struct record* record, struct record* base) {
@@ -285,7 +285,7 @@ bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source
         record *p1;
         p1->id = 0;
         p1->value = malloc(size);
-        memcpy(p1->value, static_cast<void const*>(target), size);
+        memcpy(p1->value, target, size);
         record* p2;
         p2->id = tx;
         p2->value = malloc(size);
