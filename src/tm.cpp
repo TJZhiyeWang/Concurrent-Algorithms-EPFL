@@ -216,17 +216,29 @@ size_t tm_align(shared_t shared as(unused)) noexcept {
 tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) noexcept {
     region* p_r = ((struct region*)shared);
     if (is_ro) {
-        while ((p_r->lock).test_and_set(std::memory_order_acquire));
-        (p_r->lock).clear(std::memory_order_release);
-        cout << p_r->tx << endl;
-        cout << "ro" << endl;
-        return (p_r->tx).fetch_add(1);
+        if ((p_r->lock).test_and_set(std::memory_order_acquire)) { //get the lock
+            (p_r->lock).clear(std::memory_order_release);
+            cout << p_r->tx << endl;
+            cout << "ro" << endl;
+            return (p_r->tx).fetch_add(1);
+        }
+        else {
+            cout << "invalid tx" << endl;
+            return invalid_tx;
+        }
+        
     }else {
-        while ((p_r->lock).test_and_set(std::memory_order_acquire));
-        (p_r->write).store(p_r->tx);
-        cout << p_r->tx << endl;
-        cout << "rw" << endl;
-        return (p_r->tx).fetch_add(1);
+        if ((p_r->lock).test_and_set(std::memory_order_acquire)) {
+            (p_r->write).store(p_r->tx);
+            cout << p_r->tx << endl;
+            cout << "rw" << endl;
+            return (p_r->tx).fetch_add(1);
+        }
+        else {
+            cout << "invalid tx" << endl;
+            return invalid_tx;
+        }
+        
     }
 }
 
