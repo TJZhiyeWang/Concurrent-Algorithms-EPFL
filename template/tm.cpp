@@ -333,7 +333,7 @@ alloc_t tm_alloc(shared_t shared as(unused), tx_t tx as(unused), size_t size as(
  * @param target Address of the first byte of the previously allocated segment to deallocate
  * @return Whether the whole transaction can continue
 **/
-bool tm_free(shared_t shared as(unused), tx_t tx as(unused), void* target as(unused)) {
+bool tm_free(shared_t shared, tx_t tx as(unused), void* segment) {
     size_t delta_alloc = ((struct region*)shared)->delta_alloc;
     segment = (void*)((uintptr_t)segment - delta_alloc);
     link_remove((struct link*)segment);
