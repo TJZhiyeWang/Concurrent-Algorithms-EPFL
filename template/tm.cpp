@@ -25,7 +25,7 @@
 // Internal headers
 #include <tm.h>
 #include <atomic>
-#include <hash_map>
+#include <unordered_map>
 // -------------------------------------------------------------------------- //
 
 /** Define a proposition as likely true.
@@ -128,7 +128,7 @@ struct region {
     size_t align;       // Claimed alignment of the shared memory region (in bytes)
     size_t align_alloc; // Actual alignment of the memory allocations (in bytes)
     size_t delta_alloc; // Space to add at the beginning of the segment for the link chain (in bytes)
-    std::hash_map<void*, record*> map;
+    std::unordered_map<void*, record*> map;
 
 };
 
@@ -139,8 +139,9 @@ struct region {
 **/
 shared_t tm_create(size_t size as(unused), size_t align as(unused)) {
     struct region* region = (struct region*)malloc(sizeof(struct region));
-    std::atomic_init(&(region->tx), 1);
-    std::atomic_init(&(region->write), 0);
+    (region->tx).store(1);
+    (region->write).store(0);
+    
     if (unlikely(!region)) {
         return invalid_shared;
     }
