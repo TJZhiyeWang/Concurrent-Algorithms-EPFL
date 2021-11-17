@@ -142,7 +142,7 @@ struct region {
  * @param align Alignment (in bytes, must be a power of 2) that the shared memory region must support
  * @return Opaque shared memory region handle, 'invalid_shared' on failure
 **/
-shared_t tm_create(size_t size as(unused), size_t align as(unused)) {
+shared_t tm_create(size_t size as(unused), size_t align as(unused)) noexcept {
     struct region* region = (struct region*)malloc(sizeof(struct region));
     (region->tx).store(1);
     (region->write).store(0);
@@ -168,7 +168,7 @@ shared_t tm_create(size_t size as(unused), size_t align as(unused)) {
 /** Destroy (i.e. clean-up + free) a given shared memory region.
  * @param shared Shared memory region to destroy, with no running transaction
 **/
-void tm_destroy(shared_t shared as(unused)) {
+void tm_destroy(shared_t shared as(unused)) noexcept {
     struct region* region = (struct region*)shared;
     struct link* allocs = &(region->allocs);
     while (true) { // Free allocated segments
@@ -186,7 +186,7 @@ void tm_destroy(shared_t shared as(unused)) {
  * @param shared Shared memory region to query
  * @return Start address of the first allocated segment
 **/
-void* tm_start(shared_t shared as(unused)) {
+void* tm_start(shared_t shared as(unused)) noexcept {
     return ((struct region*)shared)->start;
 }
 
@@ -194,7 +194,7 @@ void* tm_start(shared_t shared as(unused)) {
  * @param shared Shared memory region to query
  * @return First allocated segment size
 **/
-size_t tm_size(shared_t shared as(unused)) {
+size_t tm_size(shared_t shared as(unused)) noexcept {
     return ((struct region*)shared)->size;
 }
 
@@ -202,7 +202,7 @@ size_t tm_size(shared_t shared as(unused)) {
  * @param shared Shared memory region to query
  * @return Alignment used globally
 **/
-size_t tm_align(shared_t shared as(unused)) {
+size_t tm_align(shared_t shared as(unused)) noexcept {
     return ((struct region*)shared)->align;
 }
 
@@ -211,7 +211,7 @@ size_t tm_align(shared_t shared as(unused)) {
  * @param is_ro  Whether the transaction is read-only
  * @return Opaque transaction ID, 'invalid_tx' on failure
 **/
-tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) {
+tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) noexcept {
     region* p_r = ((struct region*)shared);
     if (is_ro) {
         while ((p_r->lock).test_and_set(std::memory_order_acquire));
@@ -229,7 +229,7 @@ tx_t tm_begin(shared_t shared as(unused), bool is_ro as(unused)) {
  * @param tx     Transaction to end
  * @return Whether the whole transaction committed
 **/
-bool tm_end(shared_t shared as(unused), tx_t tx as(unused)) {
+bool tm_end(shared_t shared as(unused), tx_t tx as(unused)) noexcept {
     region* p_r = ((struct region*)shared);
     if (tx == (p_r->write).load()) {
         (p_r->lock).clear(std::memory_order_release);
@@ -245,7 +245,7 @@ bool tm_end(shared_t shared as(unused), tx_t tx as(unused)) {
  * @param target Target start address (in a private region)
  * @return Whether the whole transaction can continue
 **/
-bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source as(unused), size_t size as(unused), void* target as(unused)) {
+bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source as(unused), size_t size as(unused), void* target as(unused)) noexcept {
     region* p_r = ((struct region*)shared);
     void* dest = malloc(sizeof(void const*));
     memcpy(&dest, &source, sizeof(void const*));
@@ -277,7 +277,7 @@ bool tm_read(shared_t shared as(unused), tx_t tx as(unused), void const* source 
  * @param target Target start address (in the shared region)
  * @return Whether the whole transaction can continue
 **/
-bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source as(unused), size_t size as(unused), void* target as(unused)) {
+bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source as(unused), size_t size as(unused), void* target as(unused)) noexcept {
     region* p_r = ((struct region*)shared);
     if ((p_r->map).count(target) == 0) {//don't have old value, build
         record *pr;//head node pointer
@@ -314,7 +314,7 @@ bool tm_write(shared_t shared as(unused), tx_t tx as(unused), void const* source
  * @param target Pointer in private memory receiving the address of the first byte of the newly allocated, aligned segment
  * @return Whether the whole transaction can continue (success/nomem), or not (abort_alloc)
 **/
-alloc_t tm_alloc(shared_t shared as(unused), tx_t tx as(unused), size_t size as(unused), void** target as(unused)) {
+alloc_t tm_alloc(shared_t shared as(unused), tx_t tx as(unused), size_t size as(unused), void** target as(unused)) noexcept {
     size_t align_alloc = ((struct region*)shared)->align_alloc;
     size_t delta_alloc = ((struct region*)shared)->delta_alloc;
     void* segment;
@@ -333,7 +333,7 @@ alloc_t tm_alloc(shared_t shared as(unused), tx_t tx as(unused), size_t size as(
  * @param target Address of the first byte of the previously allocated segment to deallocate
  * @return Whether the whole transaction can continue
 **/
-bool tm_free(shared_t shared, tx_t tx as(unused), void* segment) {
+bool tm_free(shared_t shared, tx_t tx as(unused), void* segment) noexcept {
     size_t delta_alloc = ((struct region*)shared)->delta_alloc;
     segment = (void*)((uintptr_t)segment - delta_alloc);
     link_remove((struct link*)segment);
