@@ -319,12 +319,12 @@ Alloc tm_alloc(shared_t shared as(unused), tx_t tx as(unused), size_t size as(un
     size_t delta_alloc = ((struct region*)shared)->delta_alloc;
     void* segment;
     if (unlikely(posix_memalign(&segment, align_alloc, delta_alloc + size) != 0)) // Allocation failed
-        return Alloc.nomem;
+        return Alloc::nomem;
     link_insert((struct link*)segment, &(((struct region*)shared)->allocs));
     segment = (void*)((uintptr_t)segment + delta_alloc);
     memset(segment, 0, size);
     *target = segment;
-    return Alloc.success;
+    return Alloc::success;
 }
 
 /** [thread-safe] Memory freeing in the given transaction.
