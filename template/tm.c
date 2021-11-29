@@ -26,7 +26,17 @@
 #include <tm.h>
 
 #include "macros.h"
+#include <pthread.h>
+#include <unistd.h>
 
+
+
+
+
+static const tx_t read_only_tx = UINTPTR_MAX - 10;
+static const tx_t read_write_tx = UINTPTR_MAX - 11;
+static pthread_mutex_t mut = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 /** Create (i.e. allocate + init) a new shared memory region, with one first non-free-able allocated segment of the requested size and alignment.
  * @param size  Size of the first shared segment of memory to allocate (in bytes), must be a positive multiple of the alignment
  * @param align Alignment (in bytes, must be a power of 2) that the shared memory region must support
