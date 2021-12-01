@@ -43,9 +43,9 @@ static const tx_t read_write_tx = UINTPTR_MAX - 11;
  * @brief List of dynamically allocated segments.
  */
 struct segment_node {
+    struct control* start;
     struct segment_node* prev;
     struct segment_node* next;
-    struct control* start;
     void* readable;
     void* writable;
     bool free;
@@ -244,6 +244,7 @@ void enter(shared_t unused(shared)){
  * @return Opaque transaction ID, 'invalid_tx' on failure
 **/
 tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
+    printf("read_only:%d\n", is_ro);
     enter(shared);
     if (is_ro) {
         struct tx* transaction = (struct tx*)malloc(sizeof(struct tx));
@@ -275,29 +276,34 @@ void leave(shared_t unused(shared), tx_t unused(tx)){
 
     lock_acquire(&(region->lock));
     region->remaining--;
-
+    printf("success:%d\n", transaction->success);
     //tx give oplist to shared
     if (!transaction->read_only){
         if (transaction->success){
-            if (transaction->op) transaction->op->prev->next = region->success;
-            region->success = transaction->op;
+            if (transaction->op) {
+                transaction->op->prev->next = region->success;
+                region->success = transaction->op;
+            }
             free(transaction);
         }else{
-            if (transaction->op) transaction->op->prev->next = region->fail;
-            region->fail = transaction->op;    
+            if (transaction->op) {
+                transaction->op->prev->next = region->fail;
+                region->fail = transaction->op;  
+            }  
             free(transaction);
         }
     }
     
 
-    // printf("remaining:%d\n",region->remaining);
+    printf("remaining:%d\n",region->remaining);
     if (region->remaining == 0){
-        // printf("epoch:%d\n",region->counter);
+        printf("epoch:%d\n",region->counter);
         // printf("blocking:%d\n",region->blocking);
         (region->counter)++;
         region->remaining = region->blocking;
         region->blocking = 0;
         commit(shared);
+        puts("commits success");
         lock_wake_up(&(region->lock));
     }
     lock_release(&(region->lock));
@@ -330,6 +336,7 @@ void commit(shared_t unused(shared)){
         free(tmp);
     }
     region->fail = NULL;
+    
     struct segment_node* node = region->allocs;
     while(node){
         if (node->free){
@@ -337,11 +344,11 @@ void commit(shared_t unused(shared)){
             else region->allocs = node->next;
             if (node->next) node->next->prev = node->prev;
             struct segment_node* tmp = node;
-            node = node->next;
             free(tmp->readable);
             free(tmp->writable);
             free(tmp);
         }
+        node = node->next;
     }
 }
 
@@ -429,6 +436,8 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct segme
 bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source), size_t unused(size), void* unused(target)) {
     //find the source block
     struct region* region = (struct region*) shared;
+    struct tx* transaction = (struct tx*) tx;
+
     int num = region->num;
     int index = (((char*)source) - (char*)(region->start))/(region->align);
     // printf("read_index:%d\n", index);
@@ -450,14 +459,25 @@ bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source
     }
     struct segment_node* node = region->allocs;
     while(node){
-        int num = (node->size)/(region->align);
-        int index = (((char*)source) - (char*)(node->start))/(region->align);
+        int num = node->num;
+        int index = ((char*)source - (char*)(node->start))/(region->align);
+        // printf("%lu read_index:%d\n",pthread_self(), index);
+        // printf("num:%d\n", num);
+        // printf("read_only: %d\n", transaction->read_only);
         if (index >=0 && index < num){
-            return read_word(shared, tx, index, node, target, size);
+            bool res = read_word(shared, tx, index, node, target, size);
+
+            if (res){
+                return res;
+            }else{
+                leave(shared, tx);
+                return res;
+            }
         }else{
             node = node->next;
         }
     }
+    transaction->success = false;
     leave(shared, tx);
     return false;
 }
@@ -537,6 +557,7 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct segm
 **/
 bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(source), size_t unused(size), void* unused(target)) {
     struct region* region = (struct region*) shared;
+    struct tx* transaction = (struct tx*) tx;
     int num = region->num;
     int index = (((char*)target) - (char*)(region->start))/(region->align);
     // printf("write_index%lu:%d\n", pthread_self(),index);
@@ -562,20 +583,22 @@ bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(sourc
 
     struct segment_node* node = region->allocs;
     while(node){
-        int num = (node->size)/(region->align);
-        int index = (((char*)target) - (char*)(node->start))/(region->align);
+        int num = node->num;
+        int index = ((char*)target - (char*)(node->start))/(region->align);
+        printf("write_index:%d\n", index);
         if (index >=0 && index < num){
             bool res = write_word(shared, tx, index, node, source, size);
             if (res){
                 return res;
             }else{
                 leave(shared, tx);
-                return false;
+                return res;
             }
         }else{
             node = node->next;
         }
-    }    
+    }
+    transaction->success = false;
     leave(shared, tx);
     return false;
 }
@@ -590,29 +613,34 @@ bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(sourc
 alloc_t tm_alloc(shared_t unused(shared), tx_t unused(tx), size_t unused(size), void** unused(target)) {
     size_t align = ((struct region*) shared)->align;
     align = align < sizeof(struct segment_node*) ? sizeof(void*) : align;
-
     struct segment_node* sn = (struct segment_node*) malloc(sizeof(struct segment_node));
     int num = size / align;
-
     sn->num = num;
-
-    if (unlikely(posix_memalign(sn->start, sizeof(struct control), num*sizeof(struct control)) != 0)){
+    sn->start = malloc(sizeof(struct control)*num);
+    printf("sn:%lu\n", sn);
+    printf("start:%lu\n", sn->start);
+    if (sn->start == NULL){
         free(sn);
+        leave(shared, tx);
         return nomem_alloc;
     }
 
     if (unlikely(posix_memalign(sn->readable, align, size) != 0)){
         free(sn->start);
         free(sn);
+        leave(shared, tx);
         return nomem_alloc;
     }
+
 
     if (unlikely(posix_memalign(sn->writable, align, size) != 0)){
         free(sn->start);
         free(sn->readable);
         free(sn);
+        leave(shared, tx);
         return nomem_alloc;
     }
+
 
     for(int i=0; i<num; i++){
         struct control* cl = (sn->start + i);
@@ -633,10 +661,9 @@ alloc_t tm_alloc(shared_t unused(shared), tx_t unused(tx), size_t unused(size), 
     sn->next = ((struct region*) shared)->allocs;
     if (sn->next) sn->next->prev = sn;
     ((struct region*) shared)->allocs = sn;
-    
+
     *target = sn->start;
     return success_alloc;
-
 }
 
 /** [thread-safe] Memory freeing in the given transaction.
@@ -657,5 +684,6 @@ bool tm_free(shared_t unused(shared), tx_t unused(tx), void* unused(target)) {
             node = node->next;
         }
     }
+    leave(shared, tx);
     return false;
 }

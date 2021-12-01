@@ -167,6 +167,7 @@ private:
                 AccountSegment segment{tx, start};
                 decltype(count) segment_count = segment.count;
                 count += segment_count;
+                // printf("accunts: %d\n", segment_count);
                 sum += segment.parity;
                 for (decltype(count) i = 0; i < segment_count; ++i) {
                     Balance local = segment.accounts[i];
@@ -213,10 +214,12 @@ private:
                         if (segment_count < nbaccounts) { // Just "allocate" account
                             segment.accounts[segment_count] = init_balance;
                             segment.count = segment_count + 1;
+                            puts("just add an account");
                         } else {
                             AccountSegment next_segment{tx, segment.next.alloc(AccountSegment::size(nbaccounts))};
                             next_segment.count = 1;
                             next_segment.accounts[0] = init_balance;
+                            puts("alloc a new space");
                         }
                     }
                     return;
