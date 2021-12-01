@@ -166,14 +166,8 @@ private:
             while (start) {
                 AccountSegment segment{tx, start}; // We interpret the memory as a segment/array of accounts.
                 decltype(count) segment_count = segment.count;
-<<<<<<< HEAD
-                count += segment_count;
-                // printf("accunts: %d\n", segment_count);
-                sum += segment.parity;
-=======
                 count += segment_count; // And accumulate the total number of accounts.
                 sum += segment.parity; // We also sum the money that results from the destruction of accounts.
->>>>>>> afd9055c22602b02c6abb3664af5771f57f6ee59
                 for (decltype(count) i = 0; i < segment_count; ++i) {
                     Balance local = segment.accounts[i];
                     if (unlikely(local < 0)) // If one account has a negative balance, there's a consistency issue.
@@ -217,12 +211,7 @@ private:
                         if (segment_count < nbaccounts) { // If there's room in the last segment, then let's create the account in it without allocating memory.
                             segment.accounts[segment_count] = init_balance;
                             segment.count = segment_count + 1;
-<<<<<<< HEAD
-                            puts("just add an account");
-                        } else {
-=======
                         } else { // Otherwise, we really need to allocate memory for the new account.
->>>>>>> afd9055c22602b02c6abb3664af5771f57f6ee59
                             AccountSegment next_segment{tx, segment.next.alloc(AccountSegment::size(nbaccounts))};
                             next_segment.count = 1;
                             next_segment.accounts[0] = init_balance;
