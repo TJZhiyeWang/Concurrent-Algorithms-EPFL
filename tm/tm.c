@@ -24,7 +24,9 @@
 
 // Internal headers
 #include <tm.h>
-
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 #include "macros.h"
 #include <pthread.h>
 #include <unistd.h>
@@ -48,8 +50,8 @@ struct segment_node {
     void* writable;
     bool free;
     size_t size;
+    size_t num;
 };
-
 typedef struct segment_node* segment_list;
 
 struct control
@@ -60,12 +62,22 @@ struct control
     long unsigned int access_set;
 };
 
-struct remain
-{
-    struct lock_t lock;
-    size_t remaining;
+struct op_node {
+    struct op_node* prev;
+    struct op_node* next;
+    bool write;
+    struct control* ptr_control;
+    void* read_address;
+    void* write_address;
+    int size;
 };
+typedef struct op_node* op_list;
 
+struct tx {
+    bool read_only;
+    op_list op;
+    bool success;
+};
 
 
 /**
@@ -74,14 +86,17 @@ struct remain
 struct region {
     struct lock_t lock;
     struct control* start;        // Start of the control block
-    void* readable;
-    void* writable;
+    void* readable;            // read version
+    void* writable;         // write version(dual version)
+    op_list fail;         // fail tx oplist(need to be reverted)
+    op_list success;      // success tx oplist
     segment_list allocs; // Shared memory segments dynamically allocated via tm_alloc within transactions
     size_t size;        // Size of the non-deallocable memory segment (in bytes)
     size_t align;       // Size of a word in the shared memory region (in bytes)
-    size_t counter;     //epoch
-    size_t blocking; //count blocking number
-    struct remain remaining;
+    size_t num;         // account number
+    size_t counter;     //epoch number
+    size_t blocking; //thread blocking number
+    size_t remaining; //threads that are still execute
 };
 
 
@@ -94,18 +109,20 @@ struct region {
  * @return Opaque shared memory region handle, 'invalid_shared' on failure
 **/
 shared_t tm_create(size_t unused(size), size_t unused(align)) {
-    
     struct region* region = (struct region*) malloc(sizeof(struct region));
+
     if (unlikely(!region)) {
         return invalid_shared;
     }
 
     int num = size / align;
-    
-    if (posix_memalign(&(region->start), sizeof(struct control), sizeof(struct control) * num) != 0) {
+
+    region->start = malloc(sizeof(struct control)*num);
+    if (region->start == NULL){
         free(region);
         return invalid_shared;
     }
+
 
     if (posix_memalign(&(region->readable), align, size) != 0) {
         free(region->start);
@@ -128,16 +145,7 @@ shared_t tm_create(size_t unused(size), size_t unused(align)) {
         return invalid_shared;
     }
 
-    if (!lock_init(&((region->remaining).lock))) {
-        free(region->readable);
-        free(region->writable);
-        free(region->start);
-        free(region);
-        lock_cleanup(&(region->lock));
-        return invalid_shared;
-    }
 
-    (region->remaining).remaining = 0;
 
     memset(region->readable, 0, size);
     memset(region->writable, 0, size);
@@ -150,11 +158,15 @@ shared_t tm_create(size_t unused(size), size_t unused(align)) {
         lock_init(&(cl->lock));
     }//init control block
 
+    region->success     = NULL;
+    region->fail        = NULL;
     region->allocs      = NULL;
     region->size        = size;
     region->align       = align;
     region->counter     = 1;
     region->blocking    = 0;
+    region->remaining   = 0;
+    region->num         = size/align;
     return region;
 }
 
@@ -168,11 +180,21 @@ void tm_destroy(shared_t unused(shared)) {
         free(region->allocs);
         region->allocs = tail;
     }
+    while (region->success) { // Free allocated segments
+        op_list tail = region->success->next;
+        free(region->success);
+        region->success = tail;
+    }
+
+    while (region->fail) { // Free allocated segments
+        op_list tail = region->fail->next;
+        free(region->fail);
+        region->fail = tail;
+    }
     free(region->start);
     free(region->readable);
     free(region->writable);
     lock_cleanup(&(region->lock));
-    lock_cleanup(&((region->remaining).lock));
     free(region);
 }
 
@@ -202,17 +224,17 @@ size_t tm_align(shared_t unused(shared)) {
 
 void enter(shared_t unused(shared)){
     struct region* region = (struct region*) shared;
-    lock_acquire(&((region->remaining).lock));
-
-    if ((region->remaining).remaining==0){
-        (region->remaining).remaining = 1;
+    lock_acquire(&(region->lock));
+    // printf("remaining: %d\n", (region->remaining).remaining);
+    if (region->remaining==0){
+        region->remaining = 1;
+        lock_release(&(region->lock));
     }else{
-        lock_acquire(&(region->lock));
+        (region->blocking)++;
+        // printf("blocking:%d\n",region->blocking);
         lock_wait(&(region->lock));//process wait
         lock_release(&(region->lock));
-        (region->blocking)++;
     }
-    lock_release(&((region->remaining).lock));
     return;
 }
 
@@ -224,9 +246,21 @@ void enter(shared_t unused(shared)){
 tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
     enter(shared);
     if (is_ro) {
-        return read_only_tx;
+        struct tx* transaction = (struct tx*)malloc(sizeof(struct tx));
+        if (transaction == NULL)
+            return invalid_tx;
+        transaction->read_only = true;
+        transaction->op = NULL;
+        transaction->success = true;
+        return transaction;
     } else {
-        return read_write_tx;
+        struct tx* transaction = (struct tx*)malloc(sizeof(struct tx));
+        if (transaction == NULL)
+            return invalid_tx;
+        transaction->read_only = false;
+        transaction->op = NULL;
+        transaction->success = true;
+        return transaction;
     }
 }
 
@@ -235,32 +269,67 @@ size_t get_epoch(shared_t unused(shared)){
     return region->counter;
 }
 
-void leave(shared_t unused(shared)){
+void leave(shared_t unused(shared), tx_t unused(tx)){
     struct region* region = (struct region*) shared;
-    lock_acquire(&((region->remaining).lock));
-    (region->remaining).remaining--;
-    if ((region->remaining).remaining == 0){
+    struct tx* transaction = (struct tx*) tx;
+
+    lock_acquire(&(region->lock));
+    region->remaining--;
+
+    //tx give oplist to shared
+    if (!transaction->read_only){
+        if (transaction->success){
+            if (transaction->op) transaction->op->prev->next = region->success;
+            region->success = transaction->op;
+            free(transaction);
+        }else{
+            if (transaction->op) transaction->op->prev->next = region->fail;
+            region->fail = transaction->op;    
+            free(transaction);
+        }
+    }
+    
+
+    // printf("remaining:%d\n",region->remaining);
+    if (region->remaining == 0){
+        // printf("epoch:%d\n",region->counter);
+        // printf("blocking:%d\n",region->blocking);
         (region->counter)++;
-        (region->remaining).remaining = region->blocking;
+        region->remaining = region->blocking;
         region->blocking = 0;
         commit(shared);
         lock_wake_up(&(region->lock));
     }
-    lock_release(&((region->remaining).lock));
+    lock_release(&(region->lock));
 }
 
 //todo copy all segments
 void commit(shared_t unused(shared)){
     struct region* region = (struct region*) shared;
-    memcpy(region->readable, region->writable, region->size);
-    int num = region->size/region->align;
-    for(int i=0; i<num; i++){
-        struct control* cl = (region->start + i);
-        cl->write = false;
-        cl->access_set = 0;
-        cl->epoch = 0;
-        lock_init(&(cl->lock));
-    }//init control block
+    struct op_node* sop = region->success;
+    while(sop){
+        sop->ptr_control->access_set = 0;
+        if (sop->write){
+            memcpy(sop->read_address, sop->write_address, sop->size);
+        }
+        //remove node
+        struct op_node* tmp = sop;
+        sop = sop->next;
+        free(tmp);
+    }
+    region->success = NULL;
+    struct op_node* fop = region->fail;
+    while(fop){
+        fop->ptr_control->access_set = 0;
+        if (fop->write){
+            memcpy(fop->write_address, fop->read_address, fop->size);
+        }
+        //remove node
+        struct op_node* tmp = fop;
+        fop = fop->next;
+        free(tmp);
+    }
+    region->fail = NULL;
     struct segment_node* node = region->allocs;
     while(node){
         if (node->free){
@@ -269,21 +338,13 @@ void commit(shared_t unused(shared)){
             if (node->next) node->next->prev = node->prev;
             struct segment_node* tmp = node;
             node = node->next;
+            free(tmp->readable);
+            free(tmp->writable);
             free(tmp);
-        }else{
-            memcpy(node->readable, node->writable, node->size);
-            int num = node->size/region->align;
-            for(int i=0; i<num; i++){
-                struct control* cl = (node->start + i);
-                cl->write = false;
-                cl->access_set = 0;
-                cl->epoch = 0;
-                lock_init(&(cl->lock));
-            }//init control block
-            node = node->next;
         }
     }
 }
+
 
 /** [thread-safe] End the given transaction.
  * @param shared Shared memory region associated with the transaction
@@ -291,26 +352,44 @@ void commit(shared_t unused(shared)){
  * @return Whether the whole transaction committed
 **/
 bool tm_end(shared_t unused(shared), tx_t unused(tx)) {
-    // TODO: tm_end(shared_t, tx_t)
-    return false;
+    // puts("end-tx");
+    leave(shared, tx);
+    return true;
 }
 
 bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct segment_node* node, void* unused(target), size_t size){
     struct region* region = (struct region*) shared;
-    if (tx == read_only_tx){
+    struct tx* transaction = (struct tx*) tx;
+    if (transaction->read_only){
         void* source = (void*)(node->readable + (region->align * index));
         memcpy(target, source, size);
         return true;
     }else{
         struct control* ct = (struct control*)((node->start)+index);
         lock_acquire(&(ct->lock));
+    
         if (ct->epoch == get_epoch(shared)){
             if (ct->access_set == pthread_self()){
                 void* source = (void*)(node->writable + (region->align * index));
                 memcpy(target, source, size);
+                struct op_node* rop = (struct op_node*) malloc(sizeof(struct op_node));
+                rop->read_address = NULL;
+                rop->write_address = NULL;
+                rop->ptr_control = ct;
+                rop->write = false;
+                // insert into the list
+                rop->next = transaction->op;
+                if (rop->next) {
+                    rop->prev = rop->next->prev;
+                    rop->next->prev = rop;
+                }else{
+                    rop->prev = rop;
+                }
+                transaction->op = rop;
                 lock_release(&(ct->lock));
                 return true;
             }else{
+                transaction->success = false;
                 lock_release(&(ct->lock));
                 return false;
             }
@@ -318,7 +397,21 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct segme
         else{
             void* source = (void*)(node->readable + (region->align * index));
             memcpy(target, source, size);
-            ct->access_set = pthread_self();
+            ct->access_set ==0 ? pthread_self(): ct->access_set;
+            struct op_node* rop = (struct op_node*) malloc(sizeof(struct op_node));
+            rop->read_address = NULL;
+            rop->write_address = NULL;
+            rop->ptr_control = ct;
+            rop->write = false;
+            // insert into the list
+            rop->next = transaction->op;
+            if (rop->next) {
+                rop->prev = rop->next->prev;
+                rop->next->prev = rop;
+            }else{
+                rop->prev = rop;
+            }
+            transaction->op = rop;
             lock_release(&(ct->lock));
             return true;
         }
@@ -336,6 +429,25 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct segme
 bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source), size_t unused(size), void* unused(target)) {
     //find the source block
     struct region* region = (struct region*) shared;
+    int num = region->num;
+    int index = (((char*)source) - (char*)(region->start))/(region->align);
+    // printf("read_index:%d\n", index);
+    if (index >=0 && index < num){
+        struct segment_node* node = (struct segment_node*)malloc(sizeof(struct segment_node));
+        node->readable = region->readable;
+        node->start = region->start;
+        node->writable = region->writable;
+        node->num = region->num;
+        bool res = read_word(shared, tx, index, node, target, size);
+        // printf("res:%d\n", *(int*)target);
+        free(node);
+        if (res){
+            return res;
+        }else{
+            leave(shared, tx);
+            return res;
+        }
+    }
     struct segment_node* node = region->allocs;
     while(node){
         int num = (node->size)/(region->align);
@@ -346,25 +458,46 @@ bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source
             node = node->next;
         }
     }
+    leave(shared, tx);
     return false;
 }
 
 bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct segment_node* node, void const* unused(source), size_t size){
     struct region* region = (struct region*) shared;
     struct control* ct = (struct control*)((node->start)+index);
+    struct tx* transaction = (struct tx*) tx;
+
     lock_acquire(&(ct->lock));
+    
     if (ct->epoch == get_epoch(shared)){
         if (ct->access_set == pthread_self()){
             void* target = (void*)(node->writable + (region->align * index));
             memcpy(target, source, size);
+            struct op_node* rop = (struct op_node*) malloc(sizeof(struct op_node));
+            rop->read_address = (void*)(node->readable + (region->align * index));
+            rop->write_address = target;
+            rop->ptr_control = ct;
+            rop->write = true;
+            rop->size = size;
+            // insert into the list
+            rop->next = transaction->op;
+            if (rop->next) {
+                rop->prev = rop->next->prev;
+                rop->next->prev = rop;
+            }else{
+                rop->prev = rop;
+            }
+            transaction->op = rop;
             lock_release(&(ct->lock));
             return true;
         }else{
+            transaction->success = false;
             lock_release(&(ct->lock));
             return false;
         }
     }else{
-        if (ct->access_set != 0){
+        if (ct->access_set != 0 && ct->access_set != pthread_self()){
+            transaction->success = false;
             lock_release(&(ct->lock));
             return false;
         }else{
@@ -372,6 +505,21 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct segm
             memcpy(target, source, size);
             ct->access_set = pthread_self();
             ct->epoch = get_epoch(shared);//set flag has been written
+            struct op_node* rop = (struct op_node*) malloc(sizeof(struct op_node));
+            rop->read_address = (void*)(node->readable + (region->align * index));
+            rop->write_address = target;
+            rop->ptr_control = ct;
+            rop->write = true;
+            rop->size = size;
+            // insert into the list
+            rop->next = transaction->op;
+            if (rop->next) {
+                rop->prev = rop->next->prev;
+                rop->next->prev = rop;
+            }else{
+                rop->prev = rop;
+            }
+            transaction->op = rop;
             lock_release(&(ct->lock));
             return true;
         }
@@ -389,16 +537,46 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct segm
 **/
 bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(source), size_t unused(size), void* unused(target)) {
     struct region* region = (struct region*) shared;
+    int num = region->num;
+    int index = (((char*)target) - (char*)(region->start))/(region->align);
+    // printf("write_index%lu:%d\n", pthread_self(),index);
+    // printf("epoch_write:%d\n", get_epoch(shared));
+    // printf("write_index:%d\n", index);
+
+    if (index >=0 && index < num){
+        struct segment_node* node = (struct segment_node*)malloc(sizeof(struct segment_node));
+        node->readable = region->readable;
+        node->start = region->start;
+        node->num = region->num;
+        node->writable = region->writable;
+        bool res = write_word(shared, tx, index, node, source, size);
+        // printf("index: %d, res: %d\n",index, res);
+        free(node);
+        if (res){
+            return res;
+        }else{
+            leave(shared, tx);
+            return res;
+        }
+    }
+
     struct segment_node* node = region->allocs;
     while(node){
         int num = (node->size)/(region->align);
         int index = (((char*)target) - (char*)(node->start))/(region->align);
         if (index >=0 && index < num){
-            return write_word(shared, tx, index, node, source, size);
+            bool res = write_word(shared, tx, index, node, source, size);
+            if (res){
+                return res;
+            }else{
+                leave(shared, tx);
+                return false;
+            }
         }else{
             node = node->next;
         }
     }    
+    leave(shared, tx);
     return false;
 }
 
@@ -415,6 +593,8 @@ alloc_t tm_alloc(shared_t unused(shared), tx_t unused(tx), size_t unused(size), 
 
     struct segment_node* sn = (struct segment_node*) malloc(sizeof(struct segment_node));
     int num = size / align;
+
+    sn->num = num;
 
     if (unlikely(posix_memalign(sn->start, sizeof(struct control), num*sizeof(struct control)) != 0)){
         free(sn);
