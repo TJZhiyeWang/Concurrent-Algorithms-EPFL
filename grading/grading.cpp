@@ -197,7 +197,7 @@ static auto measure(Workload& workload, unsigned int const nbthreads, unsigned i
         auto const posmedian = nbrepeats / 2;
         { // Initialization (with cheap correctness test)
             sync.master_notify();
-            auto res = sync.master_wait(maxtick_init);
+            auto res = sync.master_wait();//maxtick_init
             if (unlikely(::std::holds_alternative<char const*>(res))) {
                 error = ::std::get<char const*>(res);
                 goto join;
@@ -207,7 +207,7 @@ static auto measure(Workload& workload, unsigned int const nbthreads, unsigned i
         { // Performance measurements (with cheap correctness tests)
             for (unsigned int i = 0; i < nbrepeats; ++i) {
                 sync.master_notify();
-                auto res = sync.master_wait(maxtick_perf);
+                auto res = sync.master_wait();//maxtick_perf
                 if (unlikely(::std::holds_alternative<char const*>(res))) {
                     error = ::std::get<char const*>(res);
                     goto join;
@@ -218,7 +218,7 @@ static auto measure(Workload& workload, unsigned int const nbthreads, unsigned i
         }
         { // Correctness check
             sync.master_notify();
-            auto res = sync.master_wait(maxtick_chck);
+            auto res = sync.master_wait();//maxtick_chck
             if (unlikely(::std::holds_alternative<char const*>(res))) {
                 error = ::std::get<char const*>(res);
                 goto join;
@@ -259,12 +259,12 @@ int main(int argc, char** argv) {
                 res = 16;
             return static_cast<size_t>(res);
         }();
-        auto const nbtxperwrk    = 200000ul / nbworkers;
+        auto const nbtxperwrk    = 10000ul / nbworkers;
         auto const nbaccounts    = 32 * nbworkers;
         auto const expnbaccounts = 256 * nbworkers;
         auto const init_balance  = 100ul;
         auto const prob_long     = 0.5f;
-        auto const prob_alloc    = 0.01f;
+        auto const prob_alloc    = 0;
         auto const nbrepeats     = 7;
         auto const seed          = static_cast<Seed>(::std::stoul(argv[1]));
         auto const clk_res       = Chrono::get_resolution();

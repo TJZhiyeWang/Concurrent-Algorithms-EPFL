@@ -177,6 +177,8 @@ private:
                 start = segment.next;
             }
             nbaccounts = count;
+            // printf("sum:%d\n", sum);
+
             return sum == static_cast<Balance>(init_balance * count);
         });
     }
@@ -264,9 +266,20 @@ private:
             Shared<Balance> sender{tx, send_ptr};
             Shared<Balance> recver{tx, recv_ptr};
             auto send_val = sender.read();
+            // printf("send:%d, address:%lu\n",send_val, send_ptr);
+
             if (send_val > 0) {
+                // int  pre_send = sender.read();
+                // int pre_recv = recver.read();
+                // printf("pre: t:%lu, send:%d, address:%lu\n", pthread_self(), pre_send, send_ptr);
+                // printf("pre: t:%lu, recv:%d, address:%lu\n", pthread_self(), pre_recv, recv_ptr);
                 sender = send_val - 1;
                 recver = recver.read() + 1;
+                // int after_send = sender.read();
+                // int after_recv = recver.read();
+                // printf("after: t:%lu, send:%d, address:%lu\n", pthread_self(), after_send, send_ptr);
+                // printf("after: t:%lu, recv:%d, address:%lu\n", pthread_self(), after_recv, recv_ptr);
+                
             }
             return true;
         });
@@ -276,8 +289,11 @@ public:
         transactional(tm, Transaction::Mode::read_write, [&](Transaction& tx) {
             AccountSegment segment{tx, tm.get_start()};
             segment.count = nbaccounts;
-            for (size_t i = 0; i < nbaccounts; ++i)
+            for (size_t i = 0; i < nbaccounts; ++i){
                 segment.accounts[i] = init_balance;
+                // printf("balance:%d\n", segment.accounts[i]);
+            }
+
         });
         auto correct = transactional(tm, Transaction::Mode::read_only, [&](Transaction& tx) {
             AccountSegment segment{tx, tm.get_start()};
@@ -307,7 +323,7 @@ public:
         { // Last long transaction
             size_t dummy;
             if (!long_tx(dummy))
-                return "Violated isolation or atomicity";
+                return "Violated isolation or atomicity last time";
         }
         return nullptr;
     }
