@@ -163,6 +163,7 @@ private:
             auto count = 0ul; // Total number of accounts seen.
             auto sum   = Balance{0}; // Total balance on all seen accounts + parity ammount.
             auto start = tm.get_start(); // The list of accounts starts at the first word of the shared memory region.
+            
             while (start) {
                 AccountSegment segment{tx, start}; // We interpret the memory as a segment/array of accounts.
                 decltype(count) segment_count = segment.count;
@@ -175,6 +176,8 @@ private:
                     sum += local;
                 }
                 start = segment.next; // Accounts are stored in linked segments, we move to the next one.
+                // printf("address next: %lu\n", start);
+
             }
             nbaccounts = count;
             return sum == static_cast<Balance>(init_balance * count); // Consistency check: no money should ever be destroyed or created out of thin air.
@@ -215,7 +218,7 @@ private:
                             AccountSegment next_segment{tx, segment.next.alloc(AccountSegment::size(nbaccounts))};
                             next_segment.count = 1;
                             next_segment.accounts[0] = init_balance;
-                            puts("alloc a new space");
+
                         }
                     }
                     return;
