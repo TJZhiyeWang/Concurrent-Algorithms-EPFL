@@ -73,6 +73,7 @@ struct tx {
     int cur_op; //current operation number
     bool success;
     bool free;
+    unsigned long int pid;
 };
 typedef struct tx* tx_list;
 
@@ -250,6 +251,7 @@ tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
         transaction->cur_op = 0;
         transaction->success = true;
         transaction->free = false;
+        transaction->pid = pthread_self();
         return (tx_t)transaction;
     } else {
         struct tx* transaction = (struct tx*)malloc(sizeof(struct tx));
@@ -262,6 +264,7 @@ tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
         transaction->next = NULL;
         transaction->success = true;
         transaction->free = false;
+        transaction->pid = pthread_self();
         return (tx_t)transaction;
     }
 }
@@ -395,7 +398,7 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct contr
         lock_acquire(&(ct->lock));
     
         if (ct->epoch == get_epoch(shared)){
-            if (ct->access_set == pthread_self()){
+            if (ct->access_set == transaction->pid){
                 void* source = (void*)(writable + (region->align * index));
                 memcpy(target, source, size);
                 lock_release(&(ct->lock));
@@ -411,7 +414,7 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct contr
             void* source = (void*)(readable + (region->align * index));
             memcpy(target, source, size);
             if (ct->access_set == 0)
-                ct->access_set = pthread_self();
+                ct->access_set = transaction->pid;
             
             lock_release(&(ct->lock));
             add_op(tx, false, ct, NULL, NULL, 0);
@@ -484,7 +487,7 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
     lock_acquire(&(ct->lock));
     
     if (ct->epoch == get_epoch(shared)){
-        if (ct->access_set == pthread_self()){
+        if (ct->access_set == transaction->pid){
             void* target = (void*)(writable + (region->align * index));
             memcpy(target, source, size);
             lock_release(&(ct->lock));
@@ -496,14 +499,14 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
             return false;
         }
     }else{
-        if (ct->access_set != 0 && ct->access_set != pthread_self()){
+        if (ct->access_set != 0 && ct->access_set != transaction->pid){
             transaction->success = false;
             lock_release(&(ct->lock));
             return false;
         }else{
             void* target = (void*)(writable + (region->align * index));
             memcpy(target, source, size);
-            ct->access_set = pthread_self();
+            ct->access_set = transaction->pid;
             ct->epoch = get_epoch(shared);//set flag has been written
             lock_release(&(ct->lock));
             add_op(tx, true, ct, target, (void*)(readable + (region->align * index)), size);
