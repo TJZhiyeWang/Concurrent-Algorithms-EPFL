@@ -206,7 +206,7 @@ static auto measure(Workload& workload, unsigned int const nbthreads, unsigned i
         auto const posmedian = nbrepeats / 2;
         { // Initialization (with cheap correctness test)
             sync.master_notify(); // We tell workers to start working.
-            auto res = sync.master_wait(); //maxtick_init If running the student's version, it will timeout if way slower than the reference.
+            auto res = sync.master_wait(maxtick_init); //maxtick_init If running the student's version, it will timeout if way slower than the reference.
             if (unlikely(::std::holds_alternative<char const*>(res))) { // If an error happened (timeout or violation), we return early!
                 error = ::std::get<char const*>(res);
                 goto join;
@@ -268,7 +268,7 @@ int main(int argc, char** argv) {
                 res = 16;
             return static_cast<size_t>(res);
         }();
-        auto const nbtxperwrk    = 10000ul / nbworkers;
+        auto const nbtxperwrk    = 100000ul / nbworkers;
         auto const nbaccounts    = 32 * nbworkers;
         auto const expnbaccounts = 256 * nbworkers;
         auto const init_balance  = 100ul;
