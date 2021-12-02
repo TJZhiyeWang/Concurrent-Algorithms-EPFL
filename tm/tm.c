@@ -399,7 +399,7 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct contr
     
         if (ct->epoch == get_epoch(shared)){
             if (ct->access_set == transaction->pid){
-                void* source = (void*)(writable + (region->align * index));
+                void* source = writable + (region->align * index);
                 memcpy(target, source, size);
                 lock_release(&(ct->lock));
                 add_op(tx, false, ct, NULL, NULL, 0);
@@ -411,7 +411,7 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct contr
             }
         }
         else{
-            void* source = (void*)(readable + (region->align * index));
+            void* source = readable + (region->align * index);
             memcpy(target, source, size);
             if (ct->access_set == 0)
                 ct->access_set = transaction->pid;
@@ -437,17 +437,11 @@ bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source
     struct tx* transaction = (struct tx*) tx;
 
     int num = region->num;
-    int index = (((char*)source) - (char*)(region->readable))/(region->align);
+    int index = (source - region->readable)/(region->align);
     // printf("read_index:%d\n", index);
     if (index >=0 && index < num){
-        struct segment_node* node = (struct segment_node*)malloc(sizeof(struct segment_node));
-        node->readable = region->readable;
-        node->start = region->start;
-        node->writable = region->writable;
-        node->num = region->num;
         bool res = read_word(shared, tx, index, region->start, region->readable, region->writable, target, size);
         // printf("res:%d\n", *(int*)target);
-        free(node);
         if (res){
             return res;
         }else{
@@ -458,7 +452,7 @@ bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source
     struct segment_node* node = region->allocs;
     while(node){
         int num = node->num;
-        int index = ((char*)source - (char*)(node->readable))/(region->align);
+        int index = (source - node->readable)/(region->align);
         // printf("%lu read_index:%d\n",pthread_self(), index);
         // printf("num:%d\n", num);
         // printf("read_only: %d\n", transaction->read_only);
@@ -488,10 +482,10 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
     
     if (ct->epoch == get_epoch(shared)){
         if (ct->access_set == transaction->pid){
-            void* target = (void*)(writable + (region->align * index));
+            void* target = writable + (region->align * index);
             memcpy(target, source, size);
             lock_release(&(ct->lock));
-            add_op(tx, true, ct, target, (void*)(readable + (region->align * index)), size);
+            add_op(tx, true, ct, target, (readable + (target - writable)), size);
             return true;
         }else{
             transaction->success = false;
@@ -504,12 +498,12 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
             lock_release(&(ct->lock));
             return false;
         }else{
-            void* target = (void*)(writable + (region->align * index));
+            void* target = writable + (region->align * index);
             memcpy(target, source, size);
             ct->access_set = transaction->pid;
             ct->epoch = get_epoch(shared);//set flag has been written
             lock_release(&(ct->lock));
-            add_op(tx, true, ct, target, (void*)(readable + (region->align * index)), size);
+            add_op(tx, true, ct, target, (readable + (target - writable)), size);
             return true;
         }
     }
@@ -528,7 +522,7 @@ bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(sourc
     struct region* region = (struct region*) shared;
     struct tx* transaction = (struct tx*) tx;
     int num = region->num;
-    int index = (((char*)target) - (char*)(region->readable))/(region->align);
+    int index = (target - region->readable)/(region->align);
     // printf("write_index%lu:%d\n", pthread_self(),index);
     // printf("epoch_write:%d\n", get_epoch(shared));
     // printf("write_index:%d\n", index);
@@ -547,7 +541,7 @@ bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(sourc
     struct segment_node* node = region->allocs;
     while(node){
         int num = node->num;
-        int index = ((char*)target - (char*)(node->readable))/(region->align);
+        int index = (target - node->readable)/(region->align);
         // printf("write_index:%d\n", index);
         if (index >=0 && index < num){
             bool res = write_word(shared, tx, index, node->start, node->readable, node->writable, source, size);
