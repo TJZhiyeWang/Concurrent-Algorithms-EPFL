@@ -31,6 +31,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include "lock.h"
+#include <stdatomic.h>
 
 
 
@@ -38,12 +39,12 @@
  * @brief List of dynamically allocated segments.
  */
 struct segment_node {
+    bool free;
     struct control* start;
     struct segment_node* prev;
     struct segment_node* next;
     void* readable;
     void* writable;
-    bool free;
     size_t size;
     size_t num;
 };
@@ -58,21 +59,21 @@ struct control
 
 struct op_node {
     bool write;
+    int size;
     struct control* ptr_control;
     void* read_address;
     void* write_address;
-    int size;
 };
 typedef struct op_node* op_list;
 
 struct tx {
-    struct tx* next;
     bool read_only;
-    op_list op;
-    int max_op; //initial with 8 and expand with *2
-    int cur_op; //current operation number
     bool success;
     bool free;
+    int max_op; //initial with 8 and expand with *2
+    int cur_op; //current operation number
+    struct tx* next;
+    op_list op;
     unsigned long int pid;
 };
 typedef struct tx* tx_list;
@@ -221,7 +222,7 @@ void enter(shared_t unused(shared)){
     struct region* region = (struct region*) shared;
     lock_acquire(&(region->lock));
     // printf("remaining: %d\n", (region->remaining).remaining);
-    if (region->remaining==0){
+    if (unlikely(region->remaining==0)){
         region->remaining = 1;
         lock_release(&(region->lock));
     }else{
@@ -242,23 +243,19 @@ tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
     enter(shared);
     if (is_ro) {
         struct tx* transaction = (struct tx*)malloc(sizeof(struct tx));
-        if (transaction == NULL)
-            return invalid_tx;
         transaction->read_only = true;
         transaction->op = NULL;
-        transaction->next = NULL;
-        transaction->max_op = 16;
+        // transaction->next = NULL;
+        // transaction->max_op = 16;
         transaction->cur_op = 0;
         transaction->success = true;
-        transaction->free = false;
-        transaction->pid = pthread_self();
+        // transaction->free = false;
+        // transaction->pid = pthread_self();
         return (tx_t)transaction;
     } else {
         struct tx* transaction = (struct tx*)malloc(sizeof(struct tx));
-        if (transaction == NULL)
-            return invalid_tx;
         transaction->read_only = false;
-        transaction->max_op = 8;
+        transaction->max_op = 16;
         transaction->cur_op = 0;
         transaction->op = (struct op_node*)malloc(sizeof(struct op_node) * transaction->max_op);
         transaction->next = NULL;
@@ -271,7 +268,7 @@ tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
 
 void add_op(tx_t tx, bool write, struct control* c_address, void* w_address, void* r_address, int size){
     struct tx* transaction = (struct tx*) tx;
-    if (transaction->cur_op == transaction->max_op){
+    if (unlikely(transaction->cur_op == transaction->max_op)){
         //expand
         struct op_node* tmp = (struct op_node*)malloc(sizeof(struct op_node) * transaction->max_op * 2);
         memcpy(tmp, transaction->op, transaction->cur_op * sizeof(struct op_node));
@@ -288,10 +285,10 @@ void add_op(tx_t tx, bool write, struct control* c_address, void* w_address, voi
     transaction->cur_op++;
 }
 
-size_t get_epoch(shared_t unused(shared)){
-    struct region* region = (struct region*) shared;
-    return region->counter;
-}
+// size_t get_epoch(shared_t unused(shared)){
+//     struct region* region = (struct region*) shared;
+//     return region->counter;
+// }
 
 
 void commit(shared_t unused(shared), tx_t unused(tx)){
@@ -322,10 +319,10 @@ void commit(shared_t unused(shared), tx_t unused(tx)){
         free(tmp);
     }
     region->txlist = NULL;
-    if (transaction->free){
+    if (unlikely(transaction->free)){
         struct segment_node* node = region->allocs;
         while(node){
-            if (node->free){
+            if (unlikely(node->free)){
                 if (node->prev) node->prev->next = node->next;
                 else region->allocs = node->next;
                 if (node->next) node->next->prev = node->prev;
@@ -364,7 +361,7 @@ void leave(shared_t unused(shared), tx_t unused(tx)){
     
 
     // printf("remaining:%d\n",region->remaining);
-    if (region->remaining == 0){
+    if (unlikely(region->remaining == 0)){
         // printf("blocking:%d\n",region->blocking);
         (region->counter)++;
         region->remaining = region->blocking;
@@ -397,7 +394,7 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct contr
         struct control* ct = (struct control*)((start)+index);
         lock_acquire(&(ct->lock));
     
-        if (ct->epoch == get_epoch(shared)){
+        if (ct->epoch == region->counter){
             if (ct->access_set == transaction->pid){
                 void* source = writable + (region->align * index);
                 memcpy(target, source, size);
@@ -480,7 +477,7 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
 
     lock_acquire(&(ct->lock));
     
-    if (ct->epoch == get_epoch(shared)){
+    if (ct->epoch == region->counter){
         if (ct->access_set == transaction->pid){
             void* target = writable + (region->align * index);
             memcpy(target, source, size);
@@ -488,20 +485,20 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
             add_op(tx, true, ct, target, (readable + (target - writable)), size);
             return true;
         }else{
-            transaction->success = false;
             lock_release(&(ct->lock));
+            transaction->success = false;
             return false;
         }
     }else{
         if (ct->access_set != 0 && ct->access_set != transaction->pid){
-            transaction->success = false;
             lock_release(&(ct->lock));
+            transaction->success = false;
             return false;
         }else{
             void* target = writable + (region->align * index);
             memcpy(target, source, size);
             ct->access_set = transaction->pid;
-            ct->epoch = get_epoch(shared);//set flag has been written
+            ct->epoch = region->counter;//set flag has been written
             lock_release(&(ct->lock));
             add_op(tx, true, ct, target, (readable + (target - writable)), size);
             return true;
@@ -574,7 +571,7 @@ alloc_t tm_alloc(shared_t unused(shared), tx_t unused(tx), size_t unused(size), 
     int num = size / align;
     sn->num = num;
     sn->start = malloc(sizeof(struct control)*num);
-    if (sn->start == NULL){
+    if (unlikely(sn->start == NULL)){
         free(sn);
         leave(shared, tx);
         return nomem_alloc;
