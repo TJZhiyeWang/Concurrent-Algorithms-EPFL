@@ -29,6 +29,8 @@ void lock_cleanup(struct lock_t* lock);
 **/
 bool lock_acquire(struct lock_t* lock);
 
+int lock_try_acquire(struct lock_t* lock);
+
 /** Release the given lock.
  * @param lock Lock to release
 **/

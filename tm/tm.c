@@ -83,6 +83,7 @@ typedef struct tx* tx_list;
  * @brief Simple Shared Memory Region (a.k.a Transactional Memory).
  */
 struct region {
+    bool readonly;
     struct lock_t lock;
     struct control* start;        // Start of the control block
     void* readable;            // read version
@@ -154,7 +155,7 @@ shared_t tm_create(size_t unused(size), size_t unused(align)) {
         cl->epoch = 0;
         lock_init(&(cl->lock));
     }//init control block
-
+    region->readonly    = false;
     region->txlist      = NULL;
     region->allocs      = NULL;
     region->size        = size;
@@ -218,7 +219,7 @@ size_t tm_align(shared_t unused(shared)) {
     return ((struct region*) shared)->align;
 }
 
-void enter(shared_t unused(shared)){
+void enter(shared_t unused(shared), bool is_ro){
     struct region* region = (struct region*) shared;
     lock_acquire(&(region->lock));
     // printf("remaining: %d\n", (region->remaining).remaining);
@@ -229,6 +230,8 @@ void enter(shared_t unused(shared)){
         (region->blocking)++;
         // printf("blocking:%d\n",region->blocking);
         lock_wait(&(region->lock));//process wait
+        if (is_ro)
+            region->readonly = true;
         lock_release(&(region->lock));
     }
     return;
@@ -240,7 +243,8 @@ void enter(shared_t unused(shared)){
  * @return Opaque transaction ID, 'invalid_tx' on failure
 **/
 tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
-    enter(shared);
+    // struct region* region = (struct region*) shared;
+    enter(shared, is_ro);
     if (is_ro) {
         struct tx* transaction = (struct tx*)malloc(sizeof(struct tx));
         transaction->read_only = true;
@@ -261,7 +265,7 @@ tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
         transaction->next = NULL;
         transaction->success = true;
         transaction->free = false;
-        transaction->pid = pthread_self();
+        transaction->pid = rand();
         return (tx_t)transaction;
     }
 }
@@ -348,7 +352,10 @@ void leave(shared_t unused(shared), tx_t unused(tx)){
     struct tx* transaction = (struct tx*) tx;
 
     lock_acquire(&(region->lock));
-    region->remaining--;
+
+    if(unlikely(transaction->read_only)){
+        region->readonly=false;
+    }
     //add transaction to region's txlist
     if (transaction->cur_op == 0){
         free(transaction->op);
@@ -358,11 +365,19 @@ void leave(shared_t unused(shared), tx_t unused(tx)){
     // if (transaction->next) transaction->next->prev = transaction;
         region->txlist = transaction;
     }
-    
+    region->remaining--;
 
-    // printf("remaining:%d\n",region->remaining);
+    if(region->readonly && region->blocking>0 && region->remaining>0){
+    
+        region->remaining += region->blocking;
+        region->blocking = 0;
+        lock_wake_up(&(region->lock));
+        lock_release(&(region->lock));
+        return;
+    }
+    
+    
     if (unlikely(region->remaining == 0)){
-        // printf("blocking:%d\n",region->blocking);
         (region->counter)++;
         region->remaining = region->blocking;
         region->blocking = 0;

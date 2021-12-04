@@ -216,7 +216,7 @@ static auto measure(Workload& workload, unsigned int const nbthreads, unsigned i
         { // Performance measurements (with cheap correctness tests)
             for (unsigned int i = 0; i < nbrepeats; ++i) {
                 sync.master_notify();
-                auto res = sync.master_wait(maxtick_perf);
+                auto res = sync.master_wait(maxtick_perf);//maxtick_perf
                 if (unlikely(::std::holds_alternative<char const*>(res))) {
                     error = ::std::get<char const*>(res);
                     goto join;
@@ -227,7 +227,7 @@ static auto measure(Workload& workload, unsigned int const nbthreads, unsigned i
         }
         { // Correctness check
             sync.master_notify();
-            auto res = sync.master_wait(maxtick_chck);
+            auto res = sync.master_wait(maxtick_chck);//maxtick_chck
             if (unlikely(::std::holds_alternative<char const*>(res))) {
                 error = ::std::get<char const*>(res);
                 goto join;

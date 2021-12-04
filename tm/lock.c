@@ -14,6 +14,10 @@ bool lock_acquire(struct lock_t* lock) {
     return pthread_mutex_lock(&(lock->mutex)) == 0;
 }
 
+int lock_try_acquire(struct lock_t* lock){
+    return pthread_mutex_trylock(&(lock->mutex));
+}
+
 void lock_release(struct lock_t* lock) {
     pthread_mutex_unlock(&(lock->mutex));
 }
