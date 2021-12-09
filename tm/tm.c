@@ -174,6 +174,9 @@ void tm_destroy(shared_t unused(shared)) {
     struct region* region = (struct region*) shared;
     while (region->allocs) { // Free allocated segments
         segment_list tail = region->allocs->next;
+        free(region->allocs->start);
+        free(region->allocs->readable);
+        free(region->allocs->writable);
         free(region->allocs);
         region->allocs = tail;
     }

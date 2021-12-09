@@ -52,4 +52,4 @@ endef
 $(foreach EXT,$(EXT_CXX),$(eval $(call BUILD_CXX,$(EXT))))
 
 $(BIN): $(OBJS) Makefile
-	$(LD) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
+	$(LD) $(LDFLAGS) -g -o $@ $(OBJS) $(LDLIBS)

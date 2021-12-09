@@ -29,6 +29,8 @@
 #include <random>
 #include <variant>
 
+#include <mcheck.h>
+
 // Internal headers
 #include "common.hpp"
 #include "transactional.hpp"
@@ -255,6 +257,8 @@ static auto measure(Workload& workload, unsigned int const nbthreads, unsigned i
  * @return Program return code
 **/
 int main(int argc, char** argv) {
+    
+    mtrace();
     try {
         // Parse command line option(s)
         if (argc < 3) {
