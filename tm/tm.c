@@ -322,8 +322,8 @@ void commit(shared_t unused(shared), tx_t unused(tx)){
             for (int i=0; i<transaction->cur_op; i++){
                 struct op_node* node = transaction->op + i;
                 node->ptr_control->access_set = 0;
-                if (node->write)
-                    memcpy(node->write_address, node->read_address, node->size);
+                // if (node->write)
+                //     memcpy(node->write_address, node->read_address, node->size);
             }
         }
         //remove node
@@ -423,8 +423,8 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct contr
             if (ct->access_set == transaction->pid){
                 void* source = writable + (region->align * index);
                 memcpy(target, source, size);
-                lock_release(&(ct->lock));
                 add_op(tx, false, ct, NULL, NULL, 0);
+                lock_release(&(ct->lock));
                 return true;
             }else{
                 lock_release(&(ct->lock));
@@ -437,9 +437,8 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct contr
             memcpy(target, source, size);
             if (ct->access_set == 0)
                 ct->access_set = transaction->pid;
-            
-            lock_release(&(ct->lock));
             add_op(tx, false, ct, NULL, NULL, 0);
+            lock_release(&(ct->lock));
             return true;
         }
     }
@@ -506,8 +505,8 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
         if (ct->access_set == transaction->pid){
             void* target = writable + (region->align * index);
             memcpy(target, source, size);
-            lock_release(&(ct->lock));
             add_op(tx, true, ct, target, (readable + (target - writable)), size);
+            lock_release(&(ct->lock));
             return true;
         }else{
             lock_release(&(ct->lock));
@@ -524,8 +523,8 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
             memcpy(target, source, size);
             ct->access_set = transaction->pid;
             ct->epoch = region->counter;//set flag has been written
-            lock_release(&(ct->lock));
             add_op(tx, true, ct, target, (readable + (target - writable)), size);
+            lock_release(&(ct->lock));
             return true;
         }
     }
