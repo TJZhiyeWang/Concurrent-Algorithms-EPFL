@@ -98,7 +98,11 @@ struct region {
     size_t remaining; //threads that are still execute
 };
 
-
+struct stomic_num {
+    struct lock_t lock;
+    int num;
+};
+struct stomic_num pid;
 
 
 
@@ -144,7 +148,8 @@ shared_t tm_create(size_t unused(size), size_t unused(align)) {
         return invalid_shared;
     }
 
-
+    lock_init(&(pid.lock));
+    pid.num = 1;
 
     memset(region->readable, 0, size);
     memset(region->writable, 0, size);
@@ -252,11 +257,11 @@ tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
         struct tx* transaction = (struct tx*)malloc(sizeof(struct tx));
         transaction->read_only = true;
         transaction->op = NULL;
-        // transaction->next = NULL;
+        transaction->next = NULL;
         // transaction->max_op = 16;
         transaction->cur_op = 0;
         transaction->success = true;
-        // transaction->free = false;
+        transaction->free = false;
         // transaction->pid = pthread_self();
         return (tx_t)transaction;
     } else {
@@ -268,7 +273,9 @@ tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
         transaction->next = NULL;
         transaction->success = true;
         transaction->free = false;
-        transaction->pid = rand();
+        lock_acquire(&(pid.lock));
+        transaction->pid = pid.num++;
+        lock_release(&(pid.lock));
         return (tx_t)transaction;
     }
 }
