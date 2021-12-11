@@ -235,12 +235,17 @@ void enter(shared_t unused(shared), bool is_ro){
         region->remaining = 1;
         lock_release(&(region->lock));
     }else{
-        (region->blocking)++;
-        // printf("blocking:%d\n",region->blocking);
-        lock_wait(&(region->lock));//process wait
-        if (is_ro)
-            region->readonly = true;
-        lock_release(&(region->lock));
+        if (region->readonly){
+            region->remaining++;
+            lock_release(&(region->lock));
+        }else{
+            (region->blocking)++;
+            lock_wait(&(region->lock));//process wait
+            if (is_ro)
+                region->readonly = true;
+            lock_release(&(region->lock));
+        }
+        
     }
     return;
 }
@@ -363,7 +368,7 @@ void leave(shared_t unused(shared), tx_t unused(tx)){
 
     lock_acquire(&(region->lock));
 
-    if(unlikely(transaction->read_only)){
+    if(unlikely(transaction->read_only&&region->readonly)){
         region->readonly=false;
     }
     //add transaction to region's txlist
@@ -377,17 +382,18 @@ void leave(shared_t unused(shared), tx_t unused(tx)){
     }
     region->remaining--;
 
-    if(region->readonly && region->blocking>0 && region->remaining>0){
+    // if(region->readonly && region->blocking>0 && region->remaining>0){
     
-        region->remaining += region->blocking;
-        region->blocking = 0;
-        lock_wake_up(&(region->lock));
-        lock_release(&(region->lock));
-        return;
-    }
+    //     region->remaining += region->blocking;
+    //     region->blocking = 0;
+    //     lock_wake_up(&(region->lock));
+    //     lock_release(&(region->lock));
+    //     return;
+    // }
     
     
     if (unlikely(region->remaining == 0)){
+        // printf("epoch: %d\n", region->counter);
         (region->counter)++;
         region->remaining = region->blocking;
         region->blocking = 0;
@@ -435,7 +441,7 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct contr
         else{
             void* source = readable + (region->align * index);
             memcpy(target, source, size);
-            if (ct->access_set == 0)
+            if (ct->access_set == 0 && index!=0)
                 ct->access_set = transaction->pid;
             add_op(tx, false, ct, NULL, NULL, 0);
             lock_release(&(ct->lock));
@@ -478,6 +484,7 @@ bool tm_read(shared_t unused(shared), tx_t unused(tx), void const* unused(source
         // printf("num:%d\n", num);
         // printf("read_only: %d\n", transaction->read_only);
         if (index >=0 && index < num){
+
             bool res = read_word(shared, tx, index, node->start, node->readable, node->writable, target, size);
             if (res){
                 return res;
@@ -521,7 +528,6 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
         }else{
             void* target = writable + (region->align * index);
             memcpy(target, source, size);
-            ct->access_set = transaction->pid;
             ct->epoch = region->counter;//set flag has been written
             add_op(tx, true, ct, target, (readable + (target - writable)), size);
             lock_release(&(ct->lock));
@@ -563,8 +569,9 @@ bool tm_write(shared_t unused(shared), tx_t unused(tx), void const* unused(sourc
     while(node){
         int num = node->num;
         int index = (target - node->readable)/(region->align);
-        // printf("write_index:%d\n", index);
+        
         if (index >=0 && index < num){
+            // printf("write_index:%d\n", index);
             bool res = write_word(shared, tx, index, node->start, node->readable, node->writable, source, size);
             if (res){
                 return res;
