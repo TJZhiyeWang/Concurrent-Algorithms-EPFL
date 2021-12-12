@@ -187,6 +187,7 @@ void tm_destroy(shared_t unused(shared)) {
     }
     while (region->txlist) { // Free allocated segments
         tx_list tail = region->txlist->next;
+        free(region->txlist->op);
         free(region->txlist);
         region->txlist = tail;
     }
@@ -289,9 +290,7 @@ void add_op(tx_t tx, bool write, struct control* c_address, void* w_address, voi
     struct tx* transaction = (struct tx*) tx;
     if (unlikely(transaction->cur_op == transaction->max_op)){
         //expand
-        struct op_node* tmp = (struct op_node*)malloc(sizeof(struct op_node) * transaction->max_op * 2);
-        memcpy(tmp, transaction->op, transaction->cur_op * sizeof(struct op_node));
-        free(transaction->op);
+        struct op_node* tmp = (struct op_node*)realloc(transaction->op,sizeof(struct op_node) * transaction->max_op * 2);
         transaction->op = tmp;
         transaction->max_op = transaction->max_op * 2;
     }
