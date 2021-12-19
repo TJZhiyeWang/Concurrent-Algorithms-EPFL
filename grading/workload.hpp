@@ -292,7 +292,7 @@ public:
         });
         auto correct = transactional(tm, Transaction::Mode::read_only, [&](Transaction& tx) {
             AccountSegment segment{tx, tm.get_start()};
-            // printf("%d",segment.accounts[0]);
+            // printf("%d\n",segment.accounts[0]);
             return segment.accounts[0] == init_balance;
         });
         // printf("%lu", correct);

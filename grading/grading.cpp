@@ -258,7 +258,7 @@ static auto measure(Workload& workload, unsigned int const nbthreads, unsigned i
 **/
 int main(int argc, char** argv) {
     
-    mtrace();
+    // mtrace();
     try {
         // Parse command line option(s)
         if (argc < 3) {
