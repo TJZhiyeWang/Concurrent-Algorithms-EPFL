@@ -180,6 +180,8 @@ private:
 
             }
             nbaccounts = count;
+            // printf("me: %lu\n", sum);
+            // printf("real: %lu\n", init_balance * count);
             return sum == static_cast<Balance>(init_balance * count); // Consistency check: no money should ever be destroyed or created out of thin air.
         });
     }
@@ -290,8 +292,10 @@ public:
         });
         auto correct = transactional(tm, Transaction::Mode::read_only, [&](Transaction& tx) {
             AccountSegment segment{tx, tm.get_start()};
+            // printf("%d",segment.accounts[0]);
             return segment.accounts[0] == init_balance;
         });
+        // printf("%lu", correct);
         if (unlikely(!correct))
             return "Violated consistency (check that committed writes in shared memory get visible to the following transactions' reads)";
         return nullptr;

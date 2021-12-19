@@ -52,6 +52,7 @@ typedef struct segment_node* segment_list;
 
 struct control
 {
+    bool write;
     struct lock_t lock;
     size_t epoch;
     long unsigned int access_set;
@@ -59,10 +60,7 @@ struct control
 
 struct op_node {
     bool write;
-    int size;
     struct control* ptr_control;
-    void* read_address;
-    void* write_address;
 };
 typedef struct op_node* op_list;
 
@@ -156,6 +154,7 @@ shared_t tm_create(size_t unused(size), size_t unused(align)) {
 
     for(int i=0; i<num; i++){
         struct control* cl = (region->start + i);
+        cl->write = true;
         cl->access_set = 0;
         cl->epoch = 0;
         lock_init(&(cl->lock));
@@ -286,7 +285,7 @@ tx_t tm_begin(shared_t unused(shared), bool unused(is_ro)) {
     }
 }
 
-void add_op(tx_t tx, bool write, struct control* c_address, void* w_address, void* r_address, int size){
+void add_op(tx_t tx, bool write, struct control* c_address){
     struct tx* transaction = (struct tx*) tx;
     if (unlikely(transaction->cur_op == transaction->max_op)){
         //expand
@@ -296,10 +295,7 @@ void add_op(tx_t tx, bool write, struct control* c_address, void* w_address, voi
     }
     struct op_node* ptr = (struct op_node*) (transaction->op + transaction->cur_op);
     ptr->ptr_control = c_address;
-    ptr->read_address = r_address;
-    ptr->write_address = w_address;
     ptr->write = write;
-    ptr->size = size;
     transaction->cur_op++;
 }
 
@@ -320,7 +316,8 @@ void commit(shared_t unused(shared), tx_t unused(tx)){
                 struct op_node* node = transaction->op + i;
                 node->ptr_control->access_set = 0;
                 if (node->write)
-                    memcpy(node->read_address, node->write_address, node->size);
+                    node->ptr_control->write = node->ptr_control->write? false:true;
+                    // memcpy(node->read_address, node->write_address, node->size);
             }
         }else{
             for (int i=0; i<transaction->cur_op; i++){
@@ -416,19 +413,32 @@ bool tm_end(shared_t unused(shared), tx_t unused(tx)) {
 bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct control* start, void* readable, void* writable, void* unused(target), size_t size){
     struct region* region = (struct region*) shared;
     struct tx* transaction = (struct tx*) tx;
+    struct control* ct = (struct control*)((start)+index);
     if (transaction->read_only){
-        void* source = readable + (region->align * index);
-        memcpy(target, source, size);
-        return true;
+        if (ct->write){
+            void* source = readable + (region->align * index);
+            memcpy(target, source, size);
+            return true;
+        }
+        else{
+            void* source = writable + (region->align * index);
+            memcpy(target, source, size);
+            return true;
+        }
     }else{
-        struct control* ct = (struct control*)((start)+index);
         lock_acquire(&(ct->lock));
     
         if (ct->epoch == region->counter){
             if (ct->access_set == transaction->pid){
-                void* source = writable + (region->align * index);
-                memcpy(target, source, size);
-                add_op(tx, false, ct, NULL, NULL, 0);
+                if (ct->write){
+                    void* source = writable + (region->align * index);
+                    memcpy(target, source, size);
+                }
+                else{
+                    void* source = readable + (region->align * index);
+                    memcpy(target, source, size);
+                }
+                add_op(tx, false, ct);
                 lock_release(&(ct->lock));
                 return true;
             }else{
@@ -438,11 +448,17 @@ bool read_word(shared_t unused(shared), tx_t unused(tx), int index, struct contr
             }
         }
         else{
-            void* source = readable + (region->align * index);
-            memcpy(target, source, size);
+            if (ct->write){
+                void* source = readable + (region->align * index);
+                memcpy(target, source, size);
+            }
+            else{
+                void* source = writable + (region->align * index);
+                memcpy(target, source, size);
+            }
             if (ct->access_set == 0 && index!=0)
                 ct->access_set = transaction->pid;
-            add_op(tx, false, ct, NULL, NULL, 0);
+            add_op(tx, false, ct);
             lock_release(&(ct->lock));
             return true;
         }
@@ -504,14 +520,21 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
     struct region* region = (struct region*) shared;
     struct control* ct = (struct control*)((start)+index);
     struct tx* transaction = (struct tx*) tx;
-
+    // printf("index: %d", index);
+    // printf("content: %lu\n", *(unsigned long int*) source);
     lock_acquire(&(ct->lock));
     
     if (ct->epoch == region->counter){
         if (ct->access_set == transaction->pid){
-            void* target = writable + (region->align * index);
-            memcpy(target, source, size);
-            add_op(tx, true, ct, target, (readable + (target - writable)), size);
+            if (ct->write){
+                void* target = writable + (region->align * index);
+                memcpy(target, source, size);
+                add_op(tx, true, ct);
+            }else{
+                void* target = readable + (region->align * index);
+                memcpy(target, source, size);
+                add_op(tx, true, ct);
+            }
             lock_release(&(ct->lock));
             return true;
         }else{
@@ -525,10 +548,16 @@ bool write_word(shared_t unused(shared), tx_t unused(tx), int index, struct cont
             transaction->success = false;
             return false;
         }else{
-            void* target = writable + (region->align * index);
-            memcpy(target, source, size);
+            if (ct->write){
+                void* target = writable + (region->align * index);
+                memcpy(target, source, size);
+                add_op(tx, true, ct);
+            }else{
+                void* target = readable + (region->align * index);
+                memcpy(target, source, size);
+                add_op(tx, true, ct);
+            }
             ct->epoch = region->counter;//set flag has been written
-            add_op(tx, true, ct, target, (readable + (target - writable)), size);
             lock_release(&(ct->lock));
             return true;
         }
@@ -626,6 +655,7 @@ alloc_t tm_alloc(shared_t unused(shared), tx_t unused(tx), size_t unused(size), 
 
     for(int i=0; i<num; i++){
         struct control* cl = (sn->start + i);
+        cl->write = true;
         cl->access_set = 0;
         cl->epoch = 0;
         lock_init(&(cl->lock));
